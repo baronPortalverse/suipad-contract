@@ -6,6 +6,7 @@ module suipad::campaign {
     use sui::balance;
     use sui::event;
     use sui::transfer;
+    use suipad::launchpad;
     use suipad::whitelist::{Self, Whitelist};
 
     // Errors
@@ -18,6 +19,14 @@ module suipad::campaign {
 
 
     // Events
+    struct CampaignCreated has copy, drop {
+        campaign_id: ID
+    }
+
+    struct CampaignClosed has copy, drop {
+        campaign_id: ID
+    }
+
     struct CampaignFunded has copy, drop {
         campaign_id: ID
     }
@@ -42,6 +51,7 @@ module suipad::campaign {
 
     struct TicketSold has copy, drop {
         id: ID,
+        campaign_id: ID,
         buyer: address
     }
 
@@ -94,6 +104,36 @@ module suipad::campaign {
         return campaign
     }
 
+    public entry fun create_campaign<TI, TR>(
+        _: &mut launchpad::Launchpad, 
+        campaignID: String,
+        target_amount: u64,
+        tokens_to_sell: u64,
+        receiver: address,
+        ctx: &mut TxContext
+    ) {
+        // Create campaign and corresponding whitelist
+        let campaign = new<TI, TR>(
+            campaignID,
+            target_amount,
+            tokens_to_sell,
+            receiver,
+            ctx
+        );
+        let whitelist = whitelist::new(get_id(&campaign), ctx);
+
+        event::emit(CampaignCreated{campaign_id: get_id(&campaign)});
+
+        // Make objects shared to be accessed for everyone
+        transfer::public_share_object(campaign);
+        transfer::public_share_object(whitelist);
+    }
+
+    public entry fun close_campaign<TI, TR>(_: &launchpad::Launchpad, campaign: &mut Campaign<TI, TR>){
+        close(campaign);
+        event::emit(CampaignClosed{campaign_id: get_id(campaign)});
+    }
+
     public entry fun fund<TI, TR>(campaign: &mut Campaign<TI, TR>, coin: &mut coin::Coin<TR>, ctx: &mut TxContext){
         assert!(coin::value(coin) >= campaign.tokens_to_sell, ENotEnoughFunds);
 
@@ -111,8 +151,8 @@ module suipad::campaign {
         let campaign_id = get_id(campaign);
         let ticket = whitelist::take_ticket(campaign_id, ctx);
 
-        event::emit(TicketSold {id: whitelist::get_ticket_id(&ticket), buyer: tx_context::sender(ctx)});
-        transfer::transfer(ticket, tx_context::sender(ctx));
+        event::emit(TicketSold {id: whitelist::get_ticket_id(&ticket), campaign_id, buyer: tx_context::sender(ctx)});
+        whitelist::transfer_ticket_to(ticket, tx_context::sender(ctx));
     }
 
     public entry fun invest<TI, TR>(
@@ -140,7 +180,7 @@ module suipad::campaign {
         campaign.invested_amount = campaign.invested_amount + amount;
         campaign.investors_count = campaign.investors_count + 1;
 
-        transfer::transfer(invest_cert, tx_context::sender(ctx));
+        transfer::public_transfer(invest_cert, tx_context::sender(ctx));
 
         event::emit(InvestedInCampaign{
             campaign_id: get_id(campaign),
@@ -160,7 +200,7 @@ module suipad::campaign {
             amount_to_claim = (cert.deposit / get_token_price(campaign)) / 1000;
             let tokens_to_claim = coin::take(&mut campaign.rewards_vault, amount_to_claim, ctx);
 
-            transfer::transfer(tokens_to_claim, tx_context::sender(ctx));
+            transfer::public_transfer(tokens_to_claim, tx_context::sender(ctx));
         } else if (campaign.invested_amount > campaign.target_amount) {
             amount_to_claim = (cert.deposit / campaign.invested_amount) * campaign.tokens_to_sell;
             amount_to_refund = cert.deposit - ((amount_to_claim * get_token_price(campaign)) / 1000);
@@ -169,8 +209,8 @@ module suipad::campaign {
             let tokens_to_refund = coin::take(&mut campaign.investment_vault, amount_to_refund, ctx);
 
             // Transfer coins to investor 
-            transfer::transfer(tokens_to_claim, tx_context::sender(ctx));
-            transfer::transfer(tokens_to_refund, tx_context::sender(ctx));
+            transfer::public_transfer(tokens_to_claim, tx_context::sender(ctx));
+            transfer::public_transfer(tokens_to_refund, tx_context::sender(ctx));
         };
 
         let InvestCertificate {
@@ -207,7 +247,7 @@ module suipad::campaign {
             amount: coin::value(&tokens)
         });
 
-        transfer::transfer(tokens, tx_context::sender(ctx))
+        transfer::public_transfer(tokens, tx_context::sender(ctx))
     }
 
     public fun close<TI, TR>(campaign: &mut Campaign<TI, TR>) {
