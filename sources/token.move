@@ -13,8 +13,8 @@ module suipad::token {
     /// cap is sent to the publisher, who then controls minting and burning
     fun init(witness: TOKEN, ctx: &mut TxContext) {
         let (treasury, metadata) = coin::create_currency(witness, 6, b"TOKEN", b"TKN", b"Popisek", option::none(), ctx);
-        transfer::freeze_object(metadata);
-        transfer::transfer(treasury, tx_context::sender(ctx))
+        transfer::public_freeze_object(metadata);
+        transfer::public_transfer(treasury, tx_context::sender(ctx))
     }
 
     public entry fun mint(
