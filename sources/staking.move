@@ -48,7 +48,8 @@ module suipad::staking {
         tier_levels: vector<u64>,
         investment_lock_time: u64,
         investment_lock_penalty: u64, // in %
-        minimum_amount: u64
+        minimum_amount: u64,
+        penalty_receiver: address
     }
 
     struct StakingLock has key, store {
@@ -62,7 +63,7 @@ module suipad::staking {
 
     // Functions
     // Todo: create staking pool in init function
-    entry fun new_staking_pool<StakeToken>(locks: vector<u64>, multipliers: vector<u64>, tier_levels: vector<u64>, minimum_amount: u64, ctx: &mut TxContext) {
+    entry fun new_staking_pool<StakeToken>(locks: vector<u64>, multipliers: vector<u64>, tier_levels: vector<u64>, minimum_amount: u64, penalty_receiver: address, ctx: &mut TxContext) {
         let staking_pool = StakingPool<StakeToken> {
             id: object::new(ctx),
             vault: balance::zero<StakeToken>(),
@@ -71,7 +72,8 @@ module suipad::staking {
             tier_levels: tier_levels,
             investment_lock_time: 1296000,
             investment_lock_penalty: 15,
-            minimum_amount: minimum_amount
+            minimum_amount: minimum_amount,
+            penalty_receiver: penalty_receiver
         };
 
         event::emit(CreateStakePoolEvent{
@@ -134,16 +136,14 @@ module suipad::staking {
         let coin_to_withdraw = coin::take(&mut pool.vault, lock.amount, ctx);
 
         if (lock.last_distribution_timestamp + pool.investment_lock_time > clock::timestamp_ms(clock)){
-            // split coin_to_withdraw and send penalty to the insurance fund
+            // split coin_to_withdraw and send penalty to the penalty receiver
             let total_applicable_penalty = lock.amount / 100 * 15;
             let penalty_per_second = total_applicable_penalty * DecimalPrecision / (pool.investment_lock_time / 100);
             let seconds_left = (lock.last_distribution_timestamp + pool.investment_lock_time - clock::timestamp_ms(clock)) / 100;
-            let _ = (seconds_left * penalty_per_second) / DecimalPrecision; // Penalty
+            let penalty = (seconds_left * penalty_per_second) / DecimalPrecision;
             
-            //Todo: what to do with penalty coin? We cant transfer it to the insurance fund
-
-            //let penalty_coin = coin::split(&mut coin_to_withdraw, penalty, ctx);
-            //insurance::take_penalty(fund, penalty_coin, ctx);
+            let penalty_coin = coin::split(&mut coin_to_withdraw, penalty, ctx);
+            transfer::public_transfer(penalty_coin, pool.penalty_receiver);
         };
 
         let StakingLock {

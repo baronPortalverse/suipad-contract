@@ -28,6 +28,8 @@ module suipad::campaign {
     const EInsufficientFunds: u64 = 10;
     const EAllocationExceed: u64 = 11;
     const EInvalidAllocationsLength: u64 = 12;
+    const EAlreadyFunded: u64 = 13;
+    const ECampaignHasNoRewards: u64 = 14;
 
 
     // Events
@@ -77,7 +79,8 @@ module suipad::campaign {
         distribution_start: u64,
         investors_count: u64,
         vault: Vault<TI, TR>,
-        allocations: vector<u64>
+        allocations: vector<u64>,
+        funded: bool
     }
 
     public entry fun create_campaign<TI, TR>(
@@ -114,7 +117,8 @@ module suipad::campaign {
             distribution_start,
             investors_count: 0,
             vault: vault,
-            allocations: vector::empty<u64>()
+            allocations: vector::empty<u64>(),
+            funded: false
         };
 
         let whitelist = whitelist::new(ctx);
@@ -127,6 +131,8 @@ module suipad::campaign {
     }
 
     public entry fun fund<TI, TR>(campaign: &mut Campaign<TI, TR>, coins: vector<coin::Coin<TR>>, ctx: &mut TxContext){
+        assert!(!campaign.funded, EAlreadyFunded);
+
         let amount = vault::get_tokens_total_rewards_amount(&campaign.vault);
         let coin = get_coin_from_vec(coins, amount, ctx);
 
@@ -137,6 +143,8 @@ module suipad::campaign {
 
     public entry fun apply_for_whitelist<TI, TR>(campaign: &mut Campaign<TI, TR>, _: &StakingLock, clock: &Clock, ctx: &mut TxContext) {
         assert!(is_whitelist_phase(campaign, clock), ENotInWhitelistPhase);
+        assert!(campaign.funded, ECampaignHasNoRewards);
+
         // Create ticket for campaign and transfer to user
         let campaign_id = get_id(campaign);
         let ticket = whitelist::take_ticket(campaign_id, ctx);
