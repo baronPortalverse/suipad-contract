@@ -49,8 +49,7 @@ module suipad::insurance {
         real_avg_price: u64, // * 10_000
     }
 
-    // Todo: create in init function
-    entry fun new<T>(ctx: &mut TxContext){
+    entry fun new<T>(_: &Launchpad, ctx: &mut TxContext){
         let fund = Fund<T>{
             id: object::new(ctx),
             vault: balance::zero<T>()
