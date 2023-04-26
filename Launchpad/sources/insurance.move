@@ -5,6 +5,9 @@ module suipad::insurance {
     use sui::balance;
     use sui::event;
     use sui::transfer;
+    use std::vector;
+    use sui::pay;
+    use suip::SUIP::{SUIP};
     use suipad::launchpad::{Launchpad};
     use suipad::vault::{Self, InvestCertificate, Vault};
 
@@ -14,6 +17,8 @@ module suipad::insurance {
 
     // Errors
     const ECampaignIDMismatch: u64 = 1;
+    const EInsufficientFunds: u64 = 2;
+
 
     // Events
     struct InsureCampaignEvent has drop, copy {
@@ -31,7 +36,6 @@ module suipad::insurance {
         amount: u64
     }
 
-
     struct Fund<phantom Token> has key, store {
         id: UID,
         vault: balance::Balance<Token>
@@ -47,6 +51,15 @@ module suipad::insurance {
         id: UID,
         campaign_id: ID,
         real_avg_price: u64, // * 10_000
+    }
+
+    fun init(ctx: &mut TxContext) {
+        let fund = Fund<SUIP>{
+            id: object::new(ctx),
+            vault: balance::zero<SUIP>()
+        };
+
+        transfer::public_share_object(fund)
     }
 
     entry fun new<T>(_: &Launchpad, ctx: &mut TxContext){
@@ -78,6 +91,11 @@ module suipad::insurance {
         transfer::public_share_object(refund);
     }
 
+    entry fun add_coins<T>(fund: &mut Fund<T>, amount: u64, coins: vector<coin::Coin<T>>, ctx: &mut TxContext) {
+        let coin = get_coin_from_vec(coins, amount, ctx);
+        balance::join(&mut fund.vault, coin::into_balance(coin));
+    }
+
     entry fun claim_refund<TF, TI, TR>(
         fund: &mut Fund<TF>, 
         refund_allowance: &CampaignRefundAllowance, 
@@ -97,6 +115,25 @@ module suipad::insurance {
         event::emit(ClaimRefundEvent{ campaign_id: refund_allowance.campaign_id, amount: refund_amount});
 
         transfer::public_transfer(coin, tx_context::sender(ctx))
+    }
+
+    fun get_coin_from_vec<T>(coins: vector<coin::Coin<T>>, amount: u64, ctx: &mut TxContext): coin::Coin<T>{
+        let merged_coins_in = vector::pop_back(&mut coins);
+        pay::join_vec(&mut merged_coins_in, coins);
+        assert!(coin::value(&merged_coins_in) >= amount, EInsufficientFunds);
+
+        let coin_out = coin::split(&mut merged_coins_in, amount, ctx);
+
+        if (coin::value(&merged_coins_in) > 0) {
+            transfer::public_transfer(
+                merged_coins_in,
+                tx_context::sender(ctx)
+            )
+        } else {
+            coin::destroy_zero(merged_coins_in)
+        };
+
+        coin_out
     }
 
 }
