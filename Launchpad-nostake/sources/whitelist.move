@@ -45,12 +45,7 @@ module suipad::whitelist {
         let i = 0;
         let len = vector::length(&investors);
         while (i < len) {
-            let investor = *vector::borrow(&investors, i);
-
-            if (!vector::contains(&whitelist.allowed_addresses, &investor)){
-                add_investor(whitelist, investor);
-            };
-            
+            add_investor(whitelist, *vector::borrow(&investors, i));
             i = i + 1;
         }
     }
