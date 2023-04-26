@@ -78,9 +78,9 @@ module suipad::staking {
         };
 
         vector::push_back(&mut staking_pool.locks, 0);
-        vector::push_back(&mut staking_pool.locks, 777_600_000);
-        vector::push_back(&mut staking_pool.locks, 1_555_200_000);
-        vector::push_back(&mut staking_pool.locks, 3_110_400_000);
+        vector::push_back(&mut staking_pool.locks, 7_776_000_000);
+        vector::push_back(&mut staking_pool.locks, 15_552_000_000);
+        vector::push_back(&mut staking_pool.locks, 31_104_000_000);
 
         vector::push_back(&mut staking_pool.multipliers, 100);
         vector::push_back(&mut staking_pool.multipliers, 130);
@@ -159,7 +159,7 @@ module suipad::staking {
 
         if (lock.last_distribution_timestamp + pool.investment_lock_time > clock::timestamp_ms(clock)){
             // split coin_to_withdraw and send penalty to the penalty receiver
-            let total_applicable_penalty = lock.amount / 100 * 15;
+            let total_applicable_penalty = lock.amount / 100 * pool.investment_lock_penalty;
             let penalty_per_second = total_applicable_penalty * DecimalPrecision / (pool.investment_lock_time / 100);
             let seconds_left = (lock.last_distribution_timestamp + pool.investment_lock_time - clock::timestamp_ms(clock)) / 100;
             let penalty = (seconds_left * penalty_per_second) / DecimalPrecision;
