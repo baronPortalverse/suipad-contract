@@ -1,0 +1,11 @@
+[package]
+name = "suip"
+version = "0.0.1"
+published-at = "0x8274e51412981b05a64b2dc9261609b49f4ab036184c65db2dd2ab6a4586aa00"
+
+[dependencies]
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "testnet" }
+
+[addresses]
+suip =  "0x8274e51412981b05a64b2dc9261609b49f4ab036184c65db2dd2ab6a4586aa00"
+sui =  "0000000000000000000000000000000000000000000000000000000000000002"

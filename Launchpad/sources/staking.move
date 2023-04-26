@@ -7,6 +7,8 @@ module suipad::staking {
     use sui::coin::{Self, Coin};
     use sui::clock::{Self, Clock};
     use sui::pay;
+    use suip::SUIP::{SUIP};
+    use suipad::launchpad::{Launchpad};
     use sui::tx_context::{Self, TxContext};
 
     const DecimalPrecision: u64 = 10_000;
@@ -40,9 +42,9 @@ module suipad::staking {
     }
 
     // State
-    struct StakingPool<phantom StakeToken> has key, store {
+    struct StakingPool has key, store {
         id: UID,
-        vault: Balance<StakeToken>,
+        vault: Balance<SUIP>,
         locks: vector<u64>,
         multipliers: vector<u64>, // *100
         tier_levels: vector<u64>,
@@ -62,19 +64,35 @@ module suipad::staking {
     }
 
     // Functions
-    // Todo: create staking pool in init function
-    entry fun new_staking_pool<StakeToken>(locks: vector<u64>, multipliers: vector<u64>, tier_levels: vector<u64>, minimum_amount: u64, penalty_receiver: address, ctx: &mut TxContext) {
-        let staking_pool = StakingPool<StakeToken> {
+    fun init(ctx: &mut TxContext) {
+        let staking_pool = StakingPool {
             id: object::new(ctx),
-            vault: balance::zero<StakeToken>(),
-            locks: locks,
-            multipliers: multipliers,
-            tier_levels: tier_levels,
+            vault: balance::zero<SUIP>(),
+            locks: vector::empty<u64>(),
+            multipliers: vector::empty<u64>(),
+            tier_levels: vector::empty<u64>(),
             investment_lock_time: 1296000,
             investment_lock_penalty: 15,
-            minimum_amount: minimum_amount,
-            penalty_receiver: penalty_receiver
+            minimum_amount: 2_499_999_999_999,
+            penalty_receiver: tx_context::sender(ctx)
         };
+
+        vector::push_back(&mut staking_pool.locks, 0);
+        vector::push_back(&mut staking_pool.locks, 777_600_000);
+        vector::push_back(&mut staking_pool.locks, 1_555_200_000);
+        vector::push_back(&mut staking_pool.locks, 3_110_400_000);
+
+        vector::push_back(&mut staking_pool.multipliers, 100);
+        vector::push_back(&mut staking_pool.multipliers, 130);
+        vector::push_back(&mut staking_pool.multipliers, 150);
+        vector::push_back(&mut staking_pool.multipliers, 200);
+
+        vector::push_back(&mut staking_pool.tier_levels, 4_999_999_999_999);
+        vector::push_back(&mut staking_pool.tier_levels, 9_999_999_999_999);
+        vector::push_back(&mut staking_pool.tier_levels, 29_999_999_999_999);
+        vector::push_back(&mut staking_pool.tier_levels, 49_999_999_999_999);
+        vector::push_back(&mut staking_pool.tier_levels, 99_999_999_999_999);
+        vector::push_back(&mut staking_pool.tier_levels, 18_446_744_073_709_551_615);
 
         event::emit(CreateStakePoolEvent{
             staking_pool_id: object::uid_to_inner(&staking_pool.id)
@@ -83,7 +101,11 @@ module suipad::staking {
         transfer::share_object(staking_pool)
     }
 
-    entry fun new_stake<StakeToken>(pool: &mut StakingPool<StakeToken>, lock_index: u64, amount: u64, coins: vector<Coin<StakeToken>>, clock: &Clock, ctx: &mut TxContext) {
+    entry fun set_penalty_receiver(_: &Launchpad, pool: &mut StakingPool, receiver: address) {
+        pool.penalty_receiver = receiver;
+    }
+
+    entry fun new_stake(pool: &mut StakingPool, lock_index: u64, amount: u64, coins: vector<Coin<SUIP>>, clock: &Clock, ctx: &mut TxContext) {
         assert!(amount >= pool.minimum_amount, EInsufficientFunds);
         
         let lock = StakingLock {
@@ -96,7 +118,7 @@ module suipad::staking {
         };
 
         let coin = get_coin_from_vec(coins, amount, ctx);
-        stake_coins<StakeToken>(pool, &mut lock, coin, lock_index, clock);
+        stake_coins(pool, &mut lock, coin, lock_index, clock);
 
         event::emit(CreateStakeLockEvent {
             staking_lock_id: object::uid_to_inner(&lock.id),
@@ -108,12 +130,12 @@ module suipad::staking {
         transfer::public_transfer(lock, tx_context::sender(ctx))
     }
 
-    entry fun extend_stake<StakeToken>(
-        pool: &mut StakingPool<StakeToken>, 
+    entry fun extend_stake(
+        pool: &mut StakingPool, 
         lock: &mut StakingLock, 
         lock_index: u64, 
         amount: u64, 
-        coins: vector<Coin<StakeToken>>, 
+        coins: vector<Coin<SUIP>>, 
         clock: &Clock, 
         ctx: &mut TxContext
     ) {
@@ -125,10 +147,10 @@ module suipad::staking {
         });
 
         let coin = get_coin_from_vec(coins, amount, ctx);
-        stake_coins<StakeToken>(pool, lock, coin, lock_index, clock);
+        stake_coins(pool, lock, coin, lock_index, clock);
     }
 
-    entry fun withdraw<StakeToken>(pool: &mut StakingPool<StakeToken>, lock: StakingLock, clock: &Clock, ctx: &mut TxContext) {
+    entry fun withdraw(pool: &mut StakingPool, lock: StakingLock, clock: &Clock, ctx: &mut TxContext) {
         let lock_end = lock.staking_start_timestamp + lock.lock_time;
         let unlocked_amount = lock.amount;
         assert!(lock_end < clock::timestamp_ms(clock), EStakeLocked);
@@ -168,7 +190,7 @@ module suipad::staking {
         lock.last_distribution_timestamp = timestamp;
     }
 
-    fun stake_coins<StakeToken>(pool: &mut StakingPool<StakeToken>, lock: &mut StakingLock, coin: Coin<StakeToken>, lock_index: u64, clock: &Clock) {
+    fun stake_coins(pool: &mut StakingPool, lock: &mut StakingLock, coin: Coin<SUIP>, lock_index: u64, clock: &Clock) {
         let new_lock_time = *vector::borrow(&pool.locks, lock_index);
         let multiplier = *vector::borrow(&pool.multipliers, lock_index);
 
@@ -183,7 +205,7 @@ module suipad::staking {
         balance::join(&mut pool.vault, stake_balance);
     }
 
-    fun get_coin_from_vec<T>(coins: vector<coin::Coin<T>>, amount: u64, ctx: &mut TxContext): coin::Coin<T>{
+    fun get_coin_from_vec(coins: vector<coin::Coin<SUIP>>, amount: u64, ctx: &mut TxContext): coin::Coin<SUIP>{
         let merged_coins_in = vector::pop_back(&mut coins);
         pay::join_vec(&mut merged_coins_in, coins);
         assert!(coin::value(&merged_coins_in) >= amount, EInsufficientFunds);
@@ -206,11 +228,11 @@ module suipad::staking {
         (lock.amount * lock.multiplier) / 100
     }
 
-    public fun get_tier_levels_count<T>(pool: &StakingPool<T>): u64 {
+    public fun get_tier_levels_count(pool: &StakingPool): u64 {
         vector::length(&pool.tier_levels)
     }
 
-    public fun get_tier_level<T>(lock: &StakingLock, pool: &StakingPool<T>): u64 {
+    public fun get_tier_level(lock: &StakingLock, pool: &StakingPool): u64 {
         let level = 0;
         let max_level = get_tier_levels_count(pool);
         let stake_value = get_stake_value(lock);

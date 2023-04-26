@@ -136,6 +136,8 @@ module suipad::campaign {
         let amount = vault::get_tokens_total_rewards_amount(&campaign.vault);
         let coin = get_coin_from_vec(coins, amount, ctx);
 
+        campaign.funded = true;
+
         vault::fund<TI, TR>(&mut campaign.vault, coin);
 
         event::emit(CampaignFundedEvent{campaign_id: get_id(campaign)});
@@ -171,10 +173,10 @@ module suipad::campaign {
         whitelist::add_investor(whitelist, investor)
     }
 
-    public entry fun set_allocations<TI, TR, TS>(
+    public entry fun set_allocations<TI, TR>(
         _: &launchpad::Launchpad, 
         campaign: &mut Campaign<TI, TR>, 
-        staking_pool: &staking::StakingPool<TS>, 
+        staking_pool: &staking::StakingPool, 
         allocations: vector<u64>) 
     {
         assert!(vector::length(&allocations) == staking::get_tier_levels_count(staking_pool), EInvalidAllocationsLength);
@@ -184,6 +186,7 @@ module suipad::campaign {
 
     public entry fun invest<TI, TR>(
         campaign: &mut Campaign<TI, TR>,
+        staking_pool: &staking::StakingPool,
         staking_lock: &mut StakingLock,
         amount: u64,
         coins: vector<coin::Coin<TI>>,
@@ -192,7 +195,7 @@ module suipad::campaign {
         clock: &Clock,
         ctx: &mut TxContext
     ) {
-        let max_allocation = *vector::borrow<u64>(&campaign.allocations, staking::get_stake_value(staking_lock));
+        let max_allocation = *vector::borrow<u64>(&campaign.allocations, staking::get_tier_level(staking_lock, staking_pool));
 
         assert!(is_sale_phase(campaign, clock), ENotInSalePhase);
         assert!(amount <= max_allocation, EAllocationExceed);
@@ -254,7 +257,8 @@ module suipad::campaign {
     }
 
     fun is_whitelist_phase<TI, TR>(campaign: &Campaign<TI, TR>, clock: &Clock): bool {
-        campaign.whitelist_start < clock::timestamp_ms(clock) && campaign.sale_start > clock::timestamp_ms(clock)
+        let one_day = 0;// PROD: 24 * 60 * 60 * 100;
+        campaign.whitelist_start < clock::timestamp_ms(clock) && campaign.sale_start - one_day > clock::timestamp_ms(clock)
     }
 
     fun is_sale_phase<TI, TR>(campaign: &Campaign<TI, TR>, clock: &Clock): bool {
