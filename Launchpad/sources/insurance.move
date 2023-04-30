@@ -7,7 +7,6 @@ module suipad::insurance {
     use sui::transfer;
     use std::vector;
     use sui::pay;
-    use suip::SUIP::{SUIP};
     use suipad::launchpad::{Launchpad};
     use suipad::vault::{Self, InvestCertificate, Vault};
 
@@ -53,15 +52,6 @@ module suipad::insurance {
         real_avg_price: u64, // * 10_000
     }
 
-    fun init(ctx: &mut TxContext) {
-        let fund = Fund<SUIP>{
-            id: object::new(ctx),
-            vault: balance::zero<SUIP>()
-        };
-
-        transfer::public_share_object(fund)
-    }
-
     entry fun new<T>(_: &Launchpad, ctx: &mut TxContext){
         let fund = Fund<T>{
             id: object::new(ctx),
@@ -96,7 +86,7 @@ module suipad::insurance {
         balance::join(&mut fund.vault, coin::into_balance(coin));
     }
 
-    entry fun claim_refund<TF, TI, TR>(
+    public(friend) fun claim_refund<TF, TI, TR>(
         fund: &mut Fund<TF>, 
         refund_allowance: &CampaignRefundAllowance, 
         cert: &InvestCertificate, 

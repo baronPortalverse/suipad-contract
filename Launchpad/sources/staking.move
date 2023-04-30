@@ -77,10 +77,10 @@ module suipad::staking {
             penalty_receiver: tx_context::sender(ctx)
         };
 
-        vector::push_back(&mut staking_pool.locks, 0);
-        vector::push_back(&mut staking_pool.locks, 7_776_000_000);
-        vector::push_back(&mut staking_pool.locks, 15_552_000_000);
-        vector::push_back(&mut staking_pool.locks, 31_104_000_000);
+        vector::push_back(&mut staking_pool.locks, 0); // PROD: 0);
+        vector::push_back(&mut staking_pool.locks, 300_000); // PROD: 7_776_000_000);
+        vector::push_back(&mut staking_pool.locks, 600_000); // PROD: 15_552_000_000);
+        vector::push_back(&mut staking_pool.locks, 1_200_000); // PROD: 31_104_000_000);
 
         vector::push_back(&mut staking_pool.multipliers, 100);
         vector::push_back(&mut staking_pool.multipliers, 130);
