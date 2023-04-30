@@ -17,8 +17,8 @@ module suipad::vault {
     const EInvestmentAlreadyClaimed : u64 = 3;
     const ENotEnoughFunds: u64 = 4;
     const ESmallRewardsBalance: u64 = 5;
-    const ESMallRefundBalance: u64 = 6;
-    const EDistributionNotStarted: u64 = 7;
+    const EDistributionNotStarted: u64 = 6;
+    const EAllocationExceeded: u64 = 7;
 
     // Events
     struct WithdrawInvestmentEvent has copy, drop {
@@ -98,7 +98,6 @@ module suipad::vault {
     public(friend) fun claim<TI, TR>(cert: &mut InvestCertificate, vault: &mut Vault<TI, TR>, clock: &Clock, ctx: &mut TxContext) {
         assert!(cert.campaign_id == vault.campaign_id, ECampaignIdMismatch);
 
-        let first_time = cert.vesting_applicable_round == 0;
         let last_applicable_round = get_last_applicable_round(vault, clock);
         let total_applicable_reward_share = 0;
 
@@ -109,11 +108,7 @@ module suipad::vault {
             cert.vesting_applicable_round = cert.vesting_applicable_round + 1;
         };
 
-        let user_reward = get_user_total_reward(vault, cert) / 100 * total_applicable_reward_share;
-
-        if (first_time && vault.invested_amount > vault.target_amount) {
-            refund_investment(cert, vault, ctx);
-        };
+        let user_reward = get_user_total_reward(vault, cert) * total_applicable_reward_share / 100 ;
 
         if (user_reward != 0){
             assert!(user_reward <= balance::value(&vault.reward_balance), ESmallRewardsBalance);
@@ -134,21 +129,9 @@ module suipad::vault {
         }
     }
 
-    fun refund_investment<TI, TR>(cert: &mut InvestCertificate, vault: &mut Vault<TI, TR>, ctx: &mut TxContext) {
-        let user_reward = get_user_total_reward(vault, cert);
-
-        let amount_to_refund = cert.deposit * DecimalPrecision - ((user_reward * get_token_price(vault)));
-        assert!(amount_to_refund <= balance::value(&vault.investment_balance), ESMallRefundBalance);
-
-        if (amount_to_refund > 0) {
-            let tokens_to_refund = coin::take(&mut vault.investment_balance, amount_to_refund, ctx);
-            transfer::public_transfer(tokens_to_refund, tx_context::sender(ctx));
-
-            event::emit(RefundInvestmentEvent{ campaign_id: vault.campaign_id, amount: amount_to_refund});
-        };
-    }
-
     public(friend) fun mint_investment_certificate<TI, TR>(vault: &mut Vault<TI, TR>, campaign_id: ID, coin: coin::Coin<TI>, insured: bool, ctx: &mut TxContext) {
+        assert!(vault.invested_amount + coin::value(&coin) <= vault.target_amount, EAllocationExceeded);
+        
         let deposit = coin::value(&coin);
 
         let invest_balance = coin::into_balance(coin);

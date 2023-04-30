@@ -9,26 +9,27 @@ module suipad::campaign {
     use std::vector;
     use sui::pay;
     use suipad::launchpad;
-    use suipad::insurance::{Self};
     use suipad::vault::{Self, Vault, InvestCertificate};
     use suipad::whitelist::{Self, Whitelist};
     use sui::dynamic_object_field as ofield;
+    use sui::table::{Self, Table};
+
+    const DecimalPrecision: u64 = 10_000;
 
     // Errors
     const EWrongCert: u64 = 1;
-    const EOnlyReceiver: u64 = 2;
-    const ENotInWhitelist: u64 = 3;
-    const ENotInWhitelistPhase: u64 = 4;
-    const ENotInSalePhase: u64 = 5;
-    const ENotInDistributionPhase: u64 = 6;
-    const ENotEnoughFunds: u64 = 7;
-    const EInvestmentAlreadyClaimed: u64 = 8;
-    const EAlreadyRequested: u64 = 9;
-    const EInsufficientFunds: u64 = 10;
-    const EAllocationExceed: u64 = 11;
-    const EInvalidAllocationsLength: u64 = 12;
-    const EAlreadyFunded: u64 = 13;
-    const ECampaignHasNoRewards: u64 = 14;
+    const ENotInWhitelist: u64 = 2;
+    const ENotInWhitelistPhase: u64 = 3;
+    const ENotInSalePhase: u64 = 4;
+    const ENotInDistributionPhase: u64 = 5;
+    const EAlreadyRequested: u64 = 6;
+    const EInsufficientFunds: u64 = 7;
+    const EAllocationExceed: u64 = 8;
+    const EInvalidAllocationsLength: u64 = 9;
+    const EAlreadyFunded: u64 = 10;
+    const ECampaignHasNoRewards: u64 = 11;
+    const EWrongTokenPrice: u64 = 12;
+    const EInvalidAmount: u64 = 13;
 
 
     // Events
@@ -62,8 +63,7 @@ module suipad::campaign {
         amount: u64,
     }
 
-    struct TicketSoldEvent has copy, drop {
-        id: ID,
+    struct ApplyForWhitelistEvent has copy, drop {
         campaign_id: ID,
         project_id: String
     }
@@ -78,7 +78,9 @@ module suipad::campaign {
         distribution_start: u64,
         investors_count: u64,
         vault: Vault<TI, TR>,
-        funded: bool
+        allocations: vector<u64>,
+        funded: bool,
+        requests: Table<address, bool>
     }
 
     public entry fun create_campaign<TI, TR>(
@@ -107,6 +109,8 @@ module suipad::campaign {
             ctx
         );
 
+        assert!(vault::get_token_price(&vault) > 0, EWrongTokenPrice);
+
         let campaign = Campaign {
             id: campaign_id,
             project_id: projectID,
@@ -115,7 +119,9 @@ module suipad::campaign {
             distribution_start,
             investors_count: 0,
             vault: vault,
-            funded: false
+            allocations: vector::empty<u64>(),
+            funded: false,
+            requests: table::new<address, bool>(ctx)
         };
 
         let whitelist = whitelist::new(ctx);
@@ -143,16 +149,20 @@ module suipad::campaign {
     public entry fun apply_for_whitelist<TI, TR>(campaign: &mut Campaign<TI, TR>, clock: &Clock, ctx: &mut TxContext) {
         assert!(is_whitelist_phase(campaign, clock), ENotInWhitelistPhase);
         assert!(campaign.funded, ECampaignHasNoRewards);
+        assert!(!table::contains(&campaign.requests, tx_context::sender(ctx)), EAlreadyRequested);
 
         // Create ticket for campaign and transfer to user
         let campaign_id = get_id(campaign);
-        let ticket = whitelist::take_ticket(campaign_id, ctx);
+        table::add(&mut campaign.requests, tx_context::sender(ctx), true);
 
-        event::emit(TicketSoldEvent {id: whitelist::get_ticket_id(&ticket), campaign_id, project_id: campaign.project_id});
-        whitelist::transfer_ticket_to(ticket, tx_context::sender(ctx));
+        event::emit(ApplyForWhitelistEvent {campaign_id, project_id: campaign.project_id});
     }
 
-    public entry fun add_bulk_to_whitelist<TI, TR>(_: &launchpad::Launchpad, campaign: &mut Campaign<TI, TR>, investors: vector<address>){
+    public entry fun add_bulk_to_whitelist<TI, TR>(
+        _: &launchpad::Launchpad, 
+        campaign: &mut Campaign<TI, TR>, 
+        investors: vector<address>,
+    ){
         let whitelist = ofield::borrow_mut<vector<u8>, Whitelist>(
             &mut campaign.id,
             b"whitelist",
@@ -170,41 +180,45 @@ module suipad::campaign {
         whitelist::add_investor(whitelist, investor)
     }
 
+    public entry fun set_allocations<TI, TR>(
+        _: &launchpad::Launchpad, 
+        campaign: &mut Campaign<TI, TR>, 
+        allocations: vector<u64>) 
+    {
+        assert!(vector::length(&allocations) == 1, EInvalidAllocationsLength);
+
+        campaign.allocations = allocations
+    }
+
     public entry fun invest<TI, TR>(
         campaign: &mut Campaign<TI, TR>,
         amount: u64,
         coins: vector<coin::Coin<TI>>,
-        insure: bool,
-        insurance_fund: &mut insurance::Fund<TI>,
         clock: &Clock,
         ctx: &mut TxContext
     ) {
+        let token_price = vault::get_token_price(&campaign.vault);
+        amount = ((amount * DecimalPrecision / token_price) * token_price) / DecimalPrecision;
+        
+        assert!(amount > 0, EInvalidAmount);
         assert!(is_sale_phase(campaign, clock), ENotInSalePhase);
+        assert!(amount <= *vector::borrow(&campaign.allocations, 0), EAllocationExceed);
 
-        let whitelist = ofield::borrow<vector<u8>, Whitelist>(
+        let whitelist = ofield::borrow_mut<vector<u8>, Whitelist>(
             &mut campaign.id,
             b"whitelist",
         );
-        assert!(whitelist::contains(whitelist, tx_context::sender(ctx)), ENotInWhitelist);
+        assert!(whitelist::can_invest(whitelist, tx_context::sender(ctx)), ENotInWhitelist);
+        whitelist::investor_invested(whitelist, tx_context::sender(ctx));
 
-        let amount_to_take = if (insure) {
-            amount + (amount / 100 * 15)
-        } else {
-            amount
-        };
-
-        let coin = get_coin_from_vec(coins, amount_to_take, ctx);
-        if (insure) {
-            let insure_coin = coin::split(&mut coin, amount / 100 * 15, ctx);
-            insurance::insure_campaign(insurance_fund, get_id(campaign), insure_coin, ctx);
-        };
+        let coin = get_coin_from_vec(coins, amount, ctx);
 
         // Create proof of investment and transfer ownership to sender
         vault::mint_investment_certificate<TI, TR>(
             &mut campaign.vault, 
             object::uid_to_inner(&campaign.id), 
             coin, 
-            insure,
+            false,
             ctx
         );
 
