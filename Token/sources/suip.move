@@ -9,7 +9,15 @@ module suip::SUIP {
     /// Module initializer is called once on module publish. A treasury
     /// cap is sent to the publisher, who then controls minting and burning
     fun init(witness: SUIP, ctx: &mut TxContext) {
-        let (treasury, metadata) = coin::create_currency(witness, 9, b"SUIP", b"SuiPad", b"SuiPad lanchpad test token", option::none(), ctx);
+        let (treasury, metadata) = coin::create_currency(
+            witness, 
+            9, 
+            b"SUIP", 
+            b"SuiPad", 
+            b"SuiPad The Premier Launchpad for Tier-1 Projects", 
+            option::none(), 
+            ctx
+        );
         transfer::public_freeze_object(metadata);
 
         coin::mint_and_transfer(&mut treasury, 100_000_000__000_000_000, tx_context::sender(ctx), ctx);
