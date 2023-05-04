@@ -12,7 +12,7 @@ module suipad::insurance {
 
     friend suipad::campaign;
 
-    const DecimalPrecision: u64 = 10_000;
+    const DecimalPrecision: u128 = 10_000_000;
 
     // Errors
     const ECampaignIDMismatch: u64 = 1;
@@ -96,7 +96,7 @@ module suipad::insurance {
         assert!(refund_allowance.campaign_id == vault::get_certificate_campaign_id(cert), ECampaignIDMismatch);
 
         let user_reward = vault::get_user_total_reward(vault, cert);
-        let token_price = vault::get_token_price(vault);
+        let token_price = (vault::get_token_price(vault) as u64);
         let invested_amount = user_reward * token_price;
         let refund_amount = invested_amount - (user_reward * refund_allowance.real_avg_price);
 

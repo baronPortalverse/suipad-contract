@@ -16,7 +16,7 @@ module suipad::campaign {
     use sui::dynamic_object_field as ofield;
     use sui::table::{Self, Table};
 
-    const DecimalPrecision: u64 = 10_000;
+    const DecimalPrecision: u128 = 10_000_000;
 
     // Errors
     const EWrongCert: u64 = 1;
@@ -207,7 +207,10 @@ module suipad::campaign {
         ctx: &mut TxContext
     ) {
         let token_price = vault::get_token_price(&campaign.vault);
-        amount = ((amount * DecimalPrecision / token_price) * token_price) / DecimalPrecision;
+        amount = {
+            let this = (((amount as u128) * DecimalPrecision / token_price) * token_price) / DecimalPrecision;
+            (this as u64)
+        };
 
         let max_allocation = *vector::borrow<u64>(&campaign.allocations, staking::get_tier_level(staking_lock, staking_pool));
 
@@ -287,7 +290,7 @@ module suipad::campaign {
     }
 
     fun is_whitelist_phase<TI, TR>(campaign: &Campaign<TI, TR>, clock: &Clock): bool {
-        let one_day = 0;// PROD: 24 * 60 * 60 * 100;
+        let one_day = 4 * 60 * 60 * 100;
         campaign.whitelist_start < clock::timestamp_ms(clock) && campaign.sale_start - one_day > clock::timestamp_ms(clock)
     }
 
