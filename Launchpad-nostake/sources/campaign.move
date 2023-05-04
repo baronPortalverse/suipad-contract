@@ -14,7 +14,7 @@ module suipad::campaign {
     use sui::dynamic_object_field as ofield;
     use sui::table::{Self, Table};
 
-    const DecimalPrecision: u64 = 10_000;
+    const DecimalPrecision: u128 = 10_000_000;
 
     // Errors
     const EWrongCert: u64 = 1;
@@ -30,7 +30,7 @@ module suipad::campaign {
     const ECampaignHasNoRewards: u64 = 11;
     const EWrongTokenPrice: u64 = 12;
     const EInvalidAmount: u64 = 13;
-
+    const EInvalidVesting: u64 = 14;
 
     // Events
     struct CampaignCreatedEvent has copy, drop {
@@ -96,6 +96,8 @@ module suipad::campaign {
         receiver: address,
         ctx: &mut TxContext
     ) {
+        assert!(vector::length(&scheduled_times) == vector::length(&scheduled_rewards), EInvalidVesting);
+
         // Create campaign and corresponding whitelist
         let campaign_id = object::new(ctx);
         let vault = vault::create<TI, TR>(
@@ -198,7 +200,10 @@ module suipad::campaign {
         ctx: &mut TxContext
     ) {
         let token_price = vault::get_token_price(&campaign.vault);
-        amount = ((amount * DecimalPrecision / token_price) * token_price) / DecimalPrecision;
+        amount = {
+            let this = (((amount as u128) * DecimalPrecision / token_price) * token_price) / DecimalPrecision;
+            (this as u64)
+        };
         
         assert!(amount > 0, EInvalidAmount);
         assert!(is_sale_phase(campaign, clock), ENotInSalePhase);

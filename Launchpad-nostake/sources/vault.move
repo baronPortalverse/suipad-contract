@@ -10,7 +10,7 @@ module suipad::vault {
 
     friend suipad::campaign;
 
-    const DecimalPrecision: u64 = 10_000;
+    const DecimalPrecision: u128 = 10_000_000;
     // Errors
     const ECampaignIdMismatch : u64 = 1;
     const EOnlyInvestmentReceiver : u64 = 2;
@@ -29,11 +29,6 @@ module suipad::vault {
     struct ClaimRewardsEvent has copy, drop {
         campaign_id: ID,
         round: u64,
-        amount: u64
-    }
-
-    struct RefundInvestmentEvent has copy, drop {
-        campaign_id: ID,
         amount: u64
     }
 
@@ -59,6 +54,11 @@ module suipad::vault {
         deposit: u64,
         vesting_applicable_round: u64,
         insured: bool
+    }
+
+    struct WthdrawUnsoldTokensEvent {
+        campaign_id: ID,
+        amount: u64
     }
 
     // Functions 
@@ -121,12 +121,7 @@ module suipad::vault {
     }
 
     public fun get_user_total_reward<TI, TR>(vault: &Vault<TI, TR>, cert: &InvestCertificate): u64 {
-        if (vault.invested_amount <= vault.target_amount) {
-            cert.deposit * DecimalPrecision / get_token_price(vault)
-        } else {
-            let user_share = vault.invested_amount * DecimalPrecision / cert.deposit;
-            vault.total_rewards * DecimalPrecision / user_share
-        }
+        ((cert.deposit as u128) * DecimalPrecision / get_token_price(vault) as u64)
     }
 
     public(friend) fun mint_investment_certificate<TI, TR>(vault: &mut Vault<TI, TR>, campaign_id: ID, coin: coin::Coin<TI>, insured: bool, ctx: &mut TxContext) {
@@ -169,8 +164,8 @@ module suipad::vault {
         transfer::public_transfer(tokens, tx_context::sender(ctx))
     }
 
-    public fun get_token_price<TI, TR>(vault: &Vault<TI, TR>): u64 {
-        vault.target_amount * DecimalPrecision / vault.total_rewards 
+    public fun get_token_price<TI, TR>(vault: &Vault<TI, TR>): u128 {
+        (vault.target_amount as u128) * DecimalPrecision / (vault.total_rewards as u128)
     }
 
     public fun get_tokens_total_rewards_amount<TI, TR>(vault: &Vault<TI, TR>): u64 {
