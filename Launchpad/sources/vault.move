@@ -172,7 +172,7 @@ module suipad::vault {
         if (vault.invested_amount < vault.target_amount){
             // Withdraw unsold tokens
             let reward_tokens_amount = {
-                let this = (vault.target_amount - vault.invested_amount as u128) * get_token_price(vault) / DecimalPrecision;
+                let this = (vault.target_amount - vault.invested_amount as u128) * DecimalPrecision / get_token_price(vault);
                 (this as u64)
             };
             
