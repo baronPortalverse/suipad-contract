@@ -18,14 +18,4 @@ module suipad::launchpad {
 
         transfer::transfer(launchpad, tx_context::sender(ctx))
     }
-
-    // ONLY FOR TESTING
-    entry fun mint(receiver: address, ctx: &mut TxContext) {
-        let launchpad = Launchpad{
-            id: object::new(ctx)
-        };
-
-        transfer::transfer(launchpad, receiver)
-    }
-
 }
