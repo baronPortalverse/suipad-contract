@@ -37,7 +37,7 @@ module suipad::vault {
         amount: u64
     }
 
-    struct WthdrawUnsoldTokensEvent {
+    struct WithdrawUnsoldTokensEvent has copy, drop {
         campaign_id: ID,
         amount: u64
     }
@@ -179,7 +179,7 @@ module suipad::vault {
             let tokens_to_withdraw = coin::take(&mut vault.reward_balance, reward_tokens_amount, ctx);
             transfer::public_transfer(tokens_to_withdraw, tx_context::sender(ctx));
 
-            event::emit(WithdrawInvestmentEvent { campaign_id: vault.campaign_id, amount: reward_tokens_amount})
+            event::emit(WithdrawUnsoldTokensEvent { campaign_id: vault.campaign_id, amount: reward_tokens_amount})
         };
 
         event::emit(WithdrawInvestmentEvent{

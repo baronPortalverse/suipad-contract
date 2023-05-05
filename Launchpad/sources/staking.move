@@ -141,15 +141,15 @@ module suipad::staking {
         clock: &Clock, 
         ctx: &mut TxContext
     ) {
+        let coin = get_coin_from_vec(coins, amount, ctx);
+        stake_coins(pool, lock, coin, lock_index, clock);
+        
         event::emit(ExtendStakeLockEvent {
             staking_lock_id: object::uid_to_inner(&lock.id),
             amount: lock.amount,
             lock_time: lock.lock_time,
             staking_start_timestamp: lock.staking_start_timestamp
         });
-
-        let coin = get_coin_from_vec(coins, amount, ctx);
-        stake_coins(pool, lock, coin, lock_index, clock);
     }
 
     entry fun withdraw(pool: &mut StakingPool, lock: StakingLock, clock: &Clock, ctx: &mut TxContext) {

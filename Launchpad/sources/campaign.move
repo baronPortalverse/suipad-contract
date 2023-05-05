@@ -278,6 +278,7 @@ module suipad::campaign {
         campaign: &Campaign<TI, TR>, 
         ctx: &mut TxContext
     ) {
+        assert!(get_id(campaign) == vault::get_certificate_campaign_id(cert), EWrongCert);
         assert!(vault::is_insured(cert), ENotInsured);
 
         insurance::claim_refund(fund, refund_allowance, cert, &campaign.vault, ctx);
@@ -290,7 +291,7 @@ module suipad::campaign {
     }
 
     fun is_whitelist_phase<TI, TR>(campaign: &Campaign<TI, TR>, clock: &Clock): bool {
-        let one_day = 4 * 60 * 60 * 100;
+        let one_day = 24 * 60 * 60 * 1000;
         campaign.whitelist_start < clock::timestamp_ms(clock) && campaign.sale_start - one_day > clock::timestamp_ms(clock)
     }
 
