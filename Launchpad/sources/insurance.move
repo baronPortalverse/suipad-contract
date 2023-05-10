@@ -12,8 +12,6 @@ module suipad::insurance {
 
     friend suipad::campaign;
 
-    const DecimalPrecision: u128 = 10_000_000;
-
     // Errors
     const ECampaignIDMismatch: u64 = 1;
     const EInsufficientFunds: u64 = 2;

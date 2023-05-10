@@ -16,8 +16,8 @@ module suipad::campaign {
     use sui::dynamic_object_field as ofield;
     use sui::table::{Self, Table};
 
-    const DecimalPrecision: u128 = 10_000_000;
-
+    const DECIMAL_PRECISION: u128 = 10_000_000;
+    const ONE_DAY: u64 = 24 * 60 * 60 * 1000;
     // Errors
     const EWrongCert: u64 = 1;
     const ENotInWhitelist: u64 = 2;
@@ -34,7 +34,8 @@ module suipad::campaign {
     const EInvalidAmount: u64 = 13;
     const ENotInsured: u64 = 14;
     const EInvalidVesting: u64 = 15;
-
+    const EInvalidVestingRewardsSum: u64 = 16;
+    const EAlreadyInvested: u64 = 17;
 
     // Events
     struct CampaignCreatedEvent has copy, drop {
@@ -55,6 +56,12 @@ module suipad::campaign {
         amount: u64,
     }
 
+    struct InvestedInSecondSaleCampaignEvent has copy, drop {
+        campaign_id: ID,
+        investor: address,
+        amount: u64,
+    }
+
     struct RewardsClaimedEvent has copy, drop {
         campaign_id: ID,
         investor: address,
@@ -70,6 +77,10 @@ module suipad::campaign {
     struct ApplyForWhitelistEvent has copy, drop {
         campaign_id: ID,
         project_id: String
+    }
+
+    struct SetAllocationsEvent has copy, drop {
+        campaign_id: ID
     }
 
 
@@ -100,6 +111,14 @@ module suipad::campaign {
         receiver: address,
         ctx: &mut TxContext
     ) {
+        let total_rewards = 0;
+        let i = 0;
+        while (i < vector::length(&scheduled_rewards)) {
+            let reward = *vector::borrow(&scheduled_rewards, i);
+            total_rewards = total_rewards + reward;
+        };
+
+        assert!(total_rewards == 100, EInvalidVestingRewardsSum);
         assert!(vector::length(&scheduled_times) == vector::length(&scheduled_rewards), EInvalidVesting);
 
         let campaign_id = object::new(ctx);
@@ -130,11 +149,13 @@ module suipad::campaign {
         };
 
         let whitelist = whitelist::new(ctx);
+        let second_sale = table::new<address, bool>(ctx);
 
         event::emit(CampaignCreatedEvent{campaign_id: get_id(&campaign)});
 
         // Make objects shared to be accessed for everyone
         ofield::add(&mut campaign.id, b"whitelist", whitelist);
+        ofield::add(&mut campaign.id, b"second_sale", second_sale);
         transfer::public_share_object(campaign);
     }
 
@@ -190,11 +211,13 @@ module suipad::campaign {
         staking_pool: &staking::StakingPool, 
         allocations: vector<u64>) 
     {
-        assert!(vector::length(&allocations) == staking::get_tier_levels_count(staking_pool), EInvalidAllocationsLength);
+        assert!(vector::length(&allocations) == staking::get_tier_levels_count(staking_pool) + 1, EInvalidAllocationsLength);
 
-        campaign.allocations = allocations
+        campaign.allocations = allocations;
+
+        event::emit(SetAllocationsEvent{ campaign_id: object::uid_to_inner(&campaign.id)});
     }
-
+    
     public entry fun invest<TI, TR>(
         campaign: &mut Campaign<TI, TR>,
         staking_pool: &staking::StakingPool,
@@ -208,7 +231,7 @@ module suipad::campaign {
     ) {
         let token_price = vault::get_token_price(&campaign.vault);
         amount = {
-            let this = (((amount as u128) * DecimalPrecision / token_price) * token_price) / DecimalPrecision;
+            let this = (amount as u128) - (((amount as u128) * DECIMAL_PRECISION) % token_price);
             (this as u64)
         };
 
@@ -225,15 +248,15 @@ module suipad::campaign {
         assert!(whitelist::can_invest(whitelist, tx_context::sender(ctx)), ENotInWhitelist);
         whitelist::investor_invested(whitelist, tx_context::sender(ctx));
         
-        let amount_to_take = if (insure) {
-            amount + (amount / 100 * 15)
+        let insurance_amount = if (insure) {
+            amount * 15 / 100
         } else {
-            amount
+            0
         };
 
-        let coin = get_coin_from_vec(coins, amount_to_take, ctx);
+        let coin = get_coin_from_vec(coins, amount + insurance_amount, ctx);
         if (insure) {
-            let insure_coin = coin::split(&mut coin, amount / 100 * 15, ctx);
+            let insure_coin = coin::split(&mut coin, insurance_amount, ctx);
             insurance::insure_campaign(insurance_fund, get_id(campaign), insure_coin, ctx);
         };
 
@@ -248,10 +271,69 @@ module suipad::campaign {
 
         campaign.investors_count = campaign.investors_count + 1;
 
-
         staking::update_last_distribution_timestamp(staking_lock, campaign.distribution_start);
 
         event::emit(InvestedInCampaignEvent {
+            campaign_id: get_id(campaign),
+            investor: tx_context::sender(ctx),
+            amount: amount
+        });
+    }
+
+    public entry fun second_sale_invest<TI, TR>(
+        campaign: &mut Campaign<TI, TR>,
+        staking_pool: &staking::StakingPool,
+        amount: u64,
+        coins: vector<coin::Coin<TI>>,
+        insure: bool,
+        insurance_fund: &mut insurance::Fund<TI>,
+        clock: &Clock,
+        ctx: &mut TxContext
+    ) {
+        let token_price = vault::get_token_price(&campaign.vault);
+        amount = {
+            let this = (amount as u128) - (((amount as u128) * DECIMAL_PRECISION) % token_price);
+            (this as u64)
+        };
+
+        let max_allocation = *vector::borrow<u64>(&campaign.allocations, staking::get_tier_levels_count(staking_pool));
+
+        assert!(amount > 0, EInvalidAmount);
+        assert!(is_second_sale_phase(campaign, clock), ENotInSalePhase);
+        assert!(amount <= max_allocation, EAllocationExceed);
+
+        let second_sale_list = ofield::borrow_mut<vector<u8>, Table<address, bool>>(
+            &mut campaign.id,
+            b"second_sale",
+        );
+
+        assert!(!table::contains(second_sale_list, tx_context::sender(ctx)), EAlreadyInvested);
+        table::add(second_sale_list, tx_context::sender(ctx), true);
+
+        let insurance_amount = if (insure) {
+            amount * 15 / 100
+        } else {
+            0
+        };
+
+        let coin = get_coin_from_vec(coins, amount + insurance_amount, ctx);
+        if (insure) {
+            let insure_coin = coin::split(&mut coin, insurance_amount, ctx);
+            insurance::insure_campaign(insurance_fund, get_id(campaign), insure_coin, ctx);
+        };
+
+        // Create proof of investment and transfer ownership to sender
+        vault::mint_investment_certificate<TI, TR>(
+            &mut campaign.vault, 
+            object::uid_to_inner(&campaign.id), 
+            coin, 
+            insure,
+            ctx
+        );
+
+        campaign.investors_count = campaign.investors_count + 1;
+
+        event::emit(InvestedInSecondSaleCampaignEvent {
             campaign_id: get_id(campaign),
             investor: tx_context::sender(ctx),
             amount: amount
@@ -291,12 +373,15 @@ module suipad::campaign {
     }
 
     fun is_whitelist_phase<TI, TR>(campaign: &Campaign<TI, TR>, clock: &Clock): bool {
-        let one_day = 24 * 60 * 60 * 1000;
-        campaign.whitelist_start < clock::timestamp_ms(clock) && campaign.sale_start - one_day > clock::timestamp_ms(clock)
+        campaign.whitelist_start < clock::timestamp_ms(clock) && campaign.sale_start - ONE_DAY > clock::timestamp_ms(clock)
     }
 
     fun is_sale_phase<TI, TR>(campaign: &Campaign<TI, TR>, clock: &Clock): bool {
-        campaign.sale_start < clock::timestamp_ms(clock) && campaign.distribution_start > clock::timestamp_ms(clock)
+        campaign.sale_start < clock::timestamp_ms(clock) && campaign.sale_start + ONE_DAY > clock::timestamp_ms(clock)
+    }
+
+    fun is_second_sale_phase<TI, TR>(campaign: &Campaign<TI, TR>, clock: &Clock): bool {
+        campaign.sale_start + ONE_DAY < clock::timestamp_ms(clock) && campaign.distribution_start > clock::timestamp_ms(clock)
     }
 
     fun is_distribution_phase<TI, TR>(campaign: &Campaign<TI, TR>, clock: &Clock): bool {

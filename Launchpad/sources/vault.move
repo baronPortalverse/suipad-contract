@@ -10,7 +10,7 @@ module suipad::vault {
 
     friend suipad::campaign;
 
-    const DecimalPrecision: u128 = 10_000_000;
+    const DECIMAL_PRECISION: u128 = 10_000_000;
     // Errors
     const ECampaignIdMismatch : u64 = 1;
     const EOnlyInvestmentReceiver : u64 = 2;
@@ -126,7 +126,7 @@ module suipad::vault {
     }
 
     public fun get_user_total_reward<TI, TR>(vault: &Vault<TI, TR>, cert: &InvestCertificate): u64 {
-        ((cert.deposit as u128) * DecimalPrecision / get_token_price(vault) as u64)
+        ((cert.deposit as u128) * DECIMAL_PRECISION / get_token_price(vault) as u64)
     }
 
     public(friend) fun insurance_claimed(cert: &mut InvestCertificate) {
@@ -172,7 +172,7 @@ module suipad::vault {
         if (vault.invested_amount < vault.target_amount){
             // Withdraw unsold tokens
             let reward_tokens_amount = {
-                let this = (vault.target_amount - vault.invested_amount as u128) * DecimalPrecision / get_token_price(vault);
+                let this = (vault.target_amount - vault.invested_amount as u128) * DECIMAL_PRECISION / get_token_price(vault);
                 (this as u64)
             };
             
@@ -191,7 +191,7 @@ module suipad::vault {
     }
 
     public fun get_token_price<TI, TR>(vault: &Vault<TI, TR>): u128 {
-        (vault.target_amount as u128) * DecimalPrecision / (vault.total_rewards as u128)
+        (vault.target_amount as u128) * DECIMAL_PRECISION / (vault.total_rewards as u128)
     }
 
     public fun get_tokens_total_rewards_amount<TI, TR>(vault: &Vault<TI, TR>): u64 {

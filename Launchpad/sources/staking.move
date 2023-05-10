@@ -13,7 +13,7 @@ module suipad::staking {
 
     friend suipad::campaign;
 
-    const DecimalPrecision: u128 = 10_000_000;
+    const DECIMAL_PRECISION: u128 = 10_000_000;
     // Errors
     const EDecreasingLock: u64 = 1;
     const EStakeLocked: u64 = 2;
@@ -73,8 +73,8 @@ module suipad::staking {
             locks: vector::empty<u64>(),
             multipliers: vector::empty<u64>(),
             tier_levels: vector::empty<u64>(),
-            investment_lock_time: 1296000,
-            investment_lock_penalty: 15,
+            investment_lock_time: 1_296_000_000, // 15 days
+            investment_lock_penalty: 15, // 15%
             minimum_amount: 2_499_999_999_999,
             penalty_receiver: tx_context::sender(ctx)
         };
@@ -161,13 +161,17 @@ module suipad::staking {
 
         if (lock.last_distribution_timestamp + pool.investment_lock_time > clock::timestamp_ms(clock)){
             // split coin_to_withdraw and send penalty to the penalty receiver
-            let total_applicable_penalty = lock.amount / 100 * pool.investment_lock_penalty;
-            let penalty_per_second = (total_applicable_penalty as u128) * DecimalPrecision / ((pool.investment_lock_time / 1000) as u128);
-            let seconds_left = (lock.last_distribution_timestamp + pool.investment_lock_time - clock::timestamp_ms(clock)) / 1000;
-            let penalty = {
-                let this = ((seconds_left as u128) * penalty_per_second) / DecimalPrecision;
-                (this as u64)
-            };
+            let penalty = 
+                if (lock.last_distribution_timestamp > clock::timestamp_ms(clock)) {
+                     lock.amount * pool.investment_lock_penalty / 100
+                } else {
+                    let max_applicable_penalty = lock.amount * pool.investment_lock_penalty / 100;
+
+                    let penalty_per_second = (max_applicable_penalty as u128) * DECIMAL_PRECISION / ((pool.investment_lock_time / 1000) as u128);
+                    let seconds_left = (lock.last_distribution_timestamp + pool.investment_lock_time - clock::timestamp_ms(clock)) / 1000;
+                    let p = ((seconds_left as u128) * penalty_per_second) / DECIMAL_PRECISION;
+                    (p as u64)
+                };
             
             let penalty_coin = coin::split(&mut coin_to_withdraw, penalty, ctx);
             transfer::public_transfer(penalty_coin, pool.penalty_receiver);
