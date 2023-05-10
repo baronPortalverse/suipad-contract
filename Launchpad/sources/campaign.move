@@ -116,6 +116,7 @@ module suipad::campaign {
         while (i < vector::length(&scheduled_rewards)) {
             let reward = *vector::borrow(&scheduled_rewards, i);
             total_rewards = total_rewards + reward;
+            i = i + 1;
         };
 
         assert!(total_rewards == 100, EInvalidVestingRewardsSum);
